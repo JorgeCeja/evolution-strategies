@@ -3,10 +3,6 @@ import torch.nn.functional as F
 
 
 class Model(nn.Module):
-    '''
-    batchnormalization adds extra parameters per each weight update
-    disable for now
-    '''
 
     def __init__(self, action_space, in_channels=3, num_features=4):
 
@@ -14,9 +10,9 @@ class Model(nn.Module):
         self.action_space = action_space
 
         self.main = nn.Sequential(
-            # chnage in_channels to 3 or 1 if rgb or grayscale
-            # in_channels, out_channels, kernel_size, stride=1, padding=0
-            nn.Conv2d(3, num_features, 4, stride=2, padding=1, bias=False),
+            # in_channels, out_channels, kernel_size, stride, padding
+            nn.Conv2d(in_channels, num_features, 4,
+                      stride=2, padding=1, bias=False),
             nn.ELU(inplace=True),
 
             nn.Conv2d(num_features, num_features * 2, 4,
@@ -45,4 +41,4 @@ class Model(nn.Module):
         return main
 
     def count_parameters(self):
-        return sum(p.numel() for p in self.main.parameters() if p.requires_grad)
+        return sum(p.numel() for p in self.parameters())

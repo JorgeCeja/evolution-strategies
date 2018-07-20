@@ -2,7 +2,6 @@ import ray
 import gym
 import torch
 from torchvision import transforms
-from PIL import Image
 import numpy as np
 
 from policy import Policy
@@ -33,6 +32,7 @@ class Worker(object):
     def __init__(self, policy_params, env_name, noise):
         self.env = gym.make(env_name)
         self.transform = transforms.Compose([
+            transforms.ToPILImage(),
             transforms.Resize((128, 128)),
             # transforms.Grayscale(),
             transforms.ToTensor()
@@ -41,51 +41,50 @@ class Worker(object):
         self.policy = Policy(**policy_params)
 
     def do_rollouts(self, parameters, render=False):
-        # perform simulation and return reward
+        # Perform simulation and return reward
         state = self.env.reset()
         done = False
         rollout_reward = 0
 
-        with torch.no_grad():
-            while not done:
-                if render:
-                    self.env.render()
+        while not done:
+            if render:
+                self.env.render()
 
-                noise_index = self.noise.sample_index(self.policy.num_params)
-                perturbation = self.noise.get(
-                    noise_index, self.policy.num_params)
+            noise_index = self.noise.sample_index(self.policy.num_params)
+            perturbation = self.noise.get(
+                noise_index, self.policy.num_params)
 
-                # input perturbation and jitters
-                # the model ends up beign only used for foward passes during rollout
-                self.policy.set_parameters(parameters, perturbation)
+            # input perturbation and jitters
+            # the model ends up beign only used for foward passes during rollout
+            self.policy.set_parameters(parameters, perturbation)
 
-                state = self.transform(Image.fromarray(state)).unsqueeze(0)
+            state = self.transform(state).unsqueeze(0)
 
-                # Do rollout with the perturbed policy.
-                action = self.policy.evaluate(state)
+            # Do rollout with the perturbed policy.
+            action = self.policy.evaluate(state)
 
-                state, reward, done, _ = self.env.step(action)
+            state, reward, done, _ = self.env.step(action)
 
-                rollout_reward += reward
+            rollout_reward += reward
 
         # Return the rewards.
         return {"noise_index": noise_index, "rollout_reward": rollout_reward}
 
 
-# optimizer
+# Stratey
 batch_size = 32  # aka population size
 policy_params = {
     "sigma": 0.1,
     "learning_rate": 0.001
 }
 
-# model
+# Model
 num_features = 8
 
-# parallel computing
+# Distributed
 num_workers = 8
 
-# training
+# Training
 steps = 1000
 
 env_name = "SpaceInvaders-v0"
@@ -100,7 +99,7 @@ ray.init()
 noise_id = create_shared_noise.remote()
 noise = SharedNoiseTable(ray.get(noise_id))
 
-# pass in the parameters intead??
+# Instanciate parent policy
 policy = Policy(**policy_params)
 
 # Create the actors/workers
@@ -112,7 +111,7 @@ total_rewards = []
 highest_reward = 0
 for i in range(steps):
 
-    # loop to fill batch based on number of workers
+    # Loop to fill batch based on number of workers
     rollout_ids = []
     for j in range(batch_size//num_workers):
         # Get the current policy weights.
@@ -141,9 +140,10 @@ for i in range(steps):
 
     print("average reward in episode ", i+1, ": ", avg_reward)
 
-    # make sure to add ray changes
+    # Update parent parameters
     policy.update(theta, all_rollout_rewards, population)
 
+    # Save highest average reward
     if avg_reward > highest_reward:
         highest_reward = avg_reward
         policy.save_model('./best-model.pth')
